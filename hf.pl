@@ -34,16 +34,16 @@ my @curl_opts = (
     "--connect-timeout",  "10",
     "--keepalive-time",    "5",
     "--tr-encoding",
-    "-H", "Transfer-Encoding: chunked",
+    "-H", "'Transfer-Encoding: chunked'",
     ($hftoken?(
-        '-H', "Authorization: Bearer $hftoken"
+        '-H', "'Authorization: Bearer $hftoken'"
     ):()),
 );
 my $dest_path = "$target_dir/$b_fn";
 {
     my @head_cmd = (
         'curl',
-        '-qsSvI',
+        '-qsSI',
         @curl_opts,
         $url,
     );
