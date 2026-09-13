@@ -67,8 +67,10 @@ my $dest_path = "$target_dir/$b_fn";
 # Download loop with retry and partial transfer detection  
 my $hdr_log = "$dest_path.hdr.tmp";
 my $max_attempts = 5;
+my $attempts_left = $max_attempts;
+my $prev_size = 0;
 
-for my $attempt (1..$max_attempts) {
+while ($attempts_left > 0) {
     my @cmd = (
         'curl',
         '-qS',
@@ -100,9 +102,18 @@ for my $attempt (1..$max_attempts) {
         if((-f $dest_path) && ($e_c != 23)) {
             # Non-fatal error or transient issue with partial download
             my $file_size = -s $dest_path;
-            print "Download interrupted (exit=$e_c,signal=$e_s), file size so far: $file_size bytes\n";
-            print "Retrying download (attempt $attempt/$max_attempts)...\n";
-            next;
+            
+            # Reset attempts if file grew (progress is being made)
+            if($file_size > $prev_size) {
+                print "Download progress detected ($prev_size -> $file_size bytes), resetting retry counter\n";
+                $attempts_left = $max_attempts;
+            } else {
+                $attempts_left--;
+            }
+            $prev_size = $file_size;
+            
+            printf("Retrying download (%d attempts remaining)...\n", $attempts_left);
+            next unless $attempts_left > 0;
         } elsif($e_c == 23) {
             # Server error (4xx/5xx), not worth retrying without changes
             unlink $hdr_log if -f $hdr_log;
@@ -147,7 +158,7 @@ for my $attempt (1..$max_attempts) {
         }
     } else {
         die "curl reported success but output file '$dest_path' does not exist\n" 
-            unless $attempt == $max_attempts;
+            unless $attempts_left == 1;
     }
 }
 
