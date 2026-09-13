@@ -92,22 +92,23 @@ while ($attempts_left > 0) {
     print "Downloading $b_fn from $repo_id_or_url to '$dest_path'\n";
     my $r = system(@cmd);
 
-    # Always check exit status and signal regardless of return value
-    my $e_c = $? >> 8;
-    my $e_s = $? & 127;
+    if($r == -1){
+        die "problem running curl: $!\n";
+    } elsif($r != 0) {
+        my $e_c = $? >> 8;
+        my $e_s = $? & 127;
 
-    if($e_s == 2) {
-        # Ctrl-C pressed, exit cleanly
-        print "\nDownload interrupted by user.\n";
-        unlink $hdr_log if -f $hdr_log;
-        last;
-    } elsif($e_c != 0) {
-        # Curl reported non-zero exit code
-        if((-f $dest_path) && ($e_c != 23)) {
-            # Non-fatal error or transient issue with partial download  
+        # Check if we should retry based on error type and file state  
+        if($e_s == 2) {
+            # Ctrl-C pressed, exit cleanly
+            print "\nDownload interrupted by user.\n";
+            unlink $hdr_log if -f $hdr_log;
+            last;
+        } elsif((-f $dest_path) && ($e_c != 23)) {
+            # Non-fatal error or transient issue with partial download
             my $file_size = -s $dest_path;
-
-            # Reset attempts if file grew (progress is being made)  
+            
+            # Reset attempts if file grew (progress is being made)
             if($file_size > $prev_size) {
                 print "Download progress detected ($prev_size -> $file_size bytes), resetting retry counter\n";
                 $attempts_left = $max_attempts;
@@ -115,11 +116,11 @@ while ($attempts_left > 0) {
                 $attempts_left--;
             }
             $prev_size = $file_size;
-
+            
             printf("Retrying download (%d attempts remaining)...\n", $attempts_left);
             next unless $attempts_left > 0;
         } elsif($e_c == 23) {
-            # Server error (4xx/5xx), not worth retrying without changes  
+            # Server error (4xx/5xx), not worth retrying without changes
             unlink $hdr_log if -f $hdr_log;
             die "curl failed with server error exit=$e_c,signal=$e_s\n";
         } else {
@@ -128,7 +129,7 @@ while ($attempts_left > 0) {
         }
     }
 
-    # Curl exited successfully - validate against response headers
+    # Validate the download via headers log file
     if(-f $hdr_log) {
         open(my $hf, '<', $hdr_log);
         my %headers;
