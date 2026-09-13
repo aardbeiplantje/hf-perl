@@ -35,6 +35,8 @@ my @curl_opts = (
     "--keepalive-time",    "5",
     "--tr-encoding",
     "-H", "'Transfer-Encoding: chunked'",
+    "--retry", "2",
+    "--retry-delay", "2",
     ($hftoken?(
         '-H', "'Authorization: Bearer $hftoken'"
     ):()),
