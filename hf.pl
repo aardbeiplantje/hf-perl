@@ -99,7 +99,12 @@ while ($attempts_left > 0) {
         my $e_s = $? & 127;
 
         # Check if we should retry based on error type and file state  
-        if((-f $dest_path) && ($e_c != 23)) {
+        if($e_s == 2) {
+            # Ctrl-C pressed, exit cleanly
+            print "\nDownload interrupted by user.\n";
+            unlink $hdr_log if -f $hdr_log;
+            last;
+        } elsif((-f $dest_path) && ($e_c != 23)) {
             # Non-fatal error or transient issue with partial download
             my $file_size = -s $dest_path;
             
