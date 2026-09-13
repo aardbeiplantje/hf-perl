@@ -31,9 +31,8 @@ my $cdn_url;
 my $hftoken = $ENV{HF_TOKEN};
 my @curl_opts = (
     "--http1.1",
-    "--connect-timeout",  "5",
-    "--max-time",       "120",
-    "--keepalive-time",   "5",
+    "--connect-timeout",  "10",
+    "--keepalive-time",    "5",
     "--tr-encoding",
     "-H", "Transfer-Encoding: chunked",
     ($hftoken?(
@@ -63,7 +62,7 @@ my $dest_path = "$target_dir/$b_fn";
 
 my @cmd = (
     'curl',
-    '-qSv',
+    '-qS',
     '--progress-bar',
     @curl_opts,
     '-C', '-',
