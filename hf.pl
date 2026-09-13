@@ -1,0 +1,86 @@
+#!/usr/bin/env perl
+
+use strict; use warnings;
+use File::Basename;
+use File::Path qw(make_path);
+use Cwd;
+
+# Ensure required parameters are provided
+die "Usage: $0 <repo_id|url> [filename] [target_dir]\n"
+    unless @ARGV >= 1;
+
+my $repo_id_or_url = $ARGV[0];
+my $filename       = $ARGV[1];
+my $target_dir     = $ARGV[2] // Cwd::cwd();
+
+# Construct the Hugging Face standard resolve URL
+my $url = $repo_id_or_url;
+unless($url =~ m/^https:\/\//){
+    $url = "https://huggingface.co/$repo_id_or_url/resolve/main/$filename";
+}
+my $b_fn = basename($url);
+$url .= "?download=true";
+
+# Ensure the target directory exists
+unless (-d $target_dir) {
+    make_path($target_dir)
+        or die "Failed to create directory $target_dir: $!\n";
+}
+
+my $cdn_url;
+my $hftoken = $ENV{HF_TOKEN};
+my @curl_opts = (
+    "--http1.1",
+    "--connect-timeout",  "5",
+    "--max-time",       "120",
+    "--keepalive-time",   "5",
+    "--tr-encoding",
+    "-H", "Transfer-Encoding: chunked",
+    ($hftoken?(
+        '-H', "Authorization: Bearer $hftoken"
+    ):()),
+);
+my $dest_path = "$target_dir/$b_fn";
+{
+    my @head_cmd = (
+        'curl',
+        '-qsSvI',
+        @curl_opts,
+        $url,
+    );
+    my $headers_cmd = join(" ", @head_cmd);
+    my $headers = `$headers_cmd`;
+    if ($! or $?){
+        die "problem running curl headers check: $!\n" if $!;
+        my $e_c = $? >> 8;
+        my $e_s = $? & 127;
+        die "curl headers check failed with exit=$e_c,signal=$e_s\n";
+    }
+    chomp($headers);
+    ($cdn_url) = ($headers =~ /^Location:\s*(https?:\/\/[^\r\n]+)/im);
+    die "No CDN url when checking $url\n" unless length($cdn_url//"");
+}
+
+my @cmd = (
+    'curl',
+    '-qSv',
+    '--progress-bar',
+    @curl_opts,
+    '-C', '-',
+    ((-f $dest_path)?(
+        '-z', $dest_path
+    ):()),
+    '-o', $dest_path,
+    $cdn_url,
+);
+
+print "Downloading $b_fn from $repo_id_or_url to '$dest_path'\n";
+my $r = system(@cmd);
+if($r == -1){
+    die "problem running curl: $!\n";
+} elsif($r != 0) {
+    my $e_c = $? >> 8;
+    my $e_s = $? & 127;
+    die "curl failed with exit=$e_c,signal=$e_s\n";
+}
+print "Download complete.\n";
