@@ -42,6 +42,8 @@ my @curl_opts = (
     ):()),
 );
 my $dest_path = "$target_dir/$b_fn";
+
+# Header check to get CDN URL
 {
     my @head_cmd = (
         'curl',
@@ -62,26 +64,90 @@ my $dest_path = "$target_dir/$b_fn";
     die "No CDN url when checking $url\n" unless length($cdn_url//"");
 }
 
-my @cmd = (
-    'curl',
-    '-qS',
-    '--progress-bar',
-    @curl_opts,
-    '-C', '-',
-    ((-f $dest_path)?(
-        '-z', $dest_path
-    ):()),
-    '-o', $dest_path,
-    $cdn_url,
-);
+# Download loop with retry and partial transfer detection  
+my $hdr_log = "$dest_path.hdr.tmp";
+my $max_attempts = 5;
 
-print "Downloading $b_fn from $repo_id_or_url to '$dest_path'\n";
-my $r = system(@cmd);
-if($r == -1){
-    die "problem running curl: $!\n";
-} elsif($r != 0) {
-    my $e_c = $? >> 8;
-    my $e_s = $? & 127;
-    die "curl failed with exit=$e_c,signal=$e_s\n";
+for my $attempt (1..$max_attempts) {
+    my @cmd = (
+        'curl',
+        '-qS',
+        '--progress-bar',
+        "--http1.1",
+        "--connect-timeout", "10",
+        "--keepalive-time", "5",
+        "--tr-encoding",
+        "-H", "'Transfer-Encoding: chunked'",
+        "--retry", "2",
+        "--retry-delay", "2",
+        "--dump-header", $hdr_log,
+        ($hftoken ? ('-H', "'Authorization: Bearer $hftoken'") : ()),
+        '-C', '-',  # resume partial downloads automatically  
+        '-o', $dest_path,
+        $cdn_url,
+    );
+
+    print "Downloading $b_fn from $repo_id_or_url to '$dest_path'\n";
+    my $r = system(@cmd);
+
+    if($r == -1){
+        die "problem running curl: $!\n";
+    } elsif($r != 0) {
+        my $e_c = $? >> 8;
+        my $e_s = $? & 127;
+
+        # Check if we should retry based on error type and file state  
+        if((-f $dest_path) && ($e_c != 23)) {
+            # Non-fatal error or transient issue with partial download
+            my $file_size = -s $dest_path;
+            print "Download interrupted (exit=$e_c,signal=$e_s), file size so far: $file_size bytes\n";
+            print "Retrying download (attempt $attempt/$max_attempts)...\n";
+            next;
+        } elsif($e_c == 23) {
+            # Server error (4xx/5xx), not worth retrying without changes
+            unlink $hdr_log if -f $hdr_log;
+            die "curl failed with server error exit=$e_c,signal=$e_s\n";
+        } else {
+            unlink $hdr_log if -f $hdr_log;
+            die "curl failed with exit=$e_c,signal=$e_s\n";
+        }
+    }
+
+    # Validate the download via headers log file
+    if(-f $hdr_log) {
+        open(my $hf, '<', $hdr_log);
+        my %headers;
+        while(<$hf>) {
+            $headers{cl} = int($1) if /^Content-Length:\s*(\d+)/i;
+            $headers{ct} = $1 if /^Content-Type:\s*([^\s]+)/i;
+        }
+        close($hf);
+
+        # Verify file is complete by comparing Content-Length to actual size  
+        if(exists $headers{cl}) {
+            my $expected = $headers{cl};
+            my $actual = -s $dest_path;
+
+            if($actual < $expected) {
+                print "Warning: Incomplete download ($actual/$expected bytes), will retry\n";
+                next;  # Continue loop to retry
+            } elsif($actual > $expected) {
+                print "Warning: File larger than expected ($actual/$expected bytes)\n";
+                # Don't fail on this, but don't retry either  
+            } else {
+                print "Download complete.\n";
+                unlink $hdr_log if -f $hdr_log;
+                last;  # Success! Exit the loop  
+            }
+        } else {
+            # No Content-Length header (chunked transfer), assume success on exit code 0  
+            print "Download complete (no content-length header).\n";
+            unlink $hdr_log if -f $hdr_log;
+            last;
+        }
+    } else {
+        die "curl reported success but output file '$dest_path' does not exist\n" 
+            unless $attempt == $max_attempts;
+    }
 }
-print "Download complete.\n";
+
