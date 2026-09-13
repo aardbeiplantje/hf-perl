@@ -107,7 +107,7 @@ while ($attempts_left > 0) {
         } elsif((-f $dest_path) && ($e_c != 23)) {
             # Non-fatal error or transient issue with partial download
             my $file_size = -s $dest_path;
-            
+
             # Reset attempts if file grew (progress is being made)
             if($file_size > $prev_size) {
                 print "Download progress detected ($prev_size -> $file_size bytes), resetting retry counter\n";
@@ -116,7 +116,7 @@ while ($attempts_left > 0) {
                 $attempts_left--;
             }
             $prev_size = $file_size;
-            
+
             printf("Retrying download (%d attempts remaining)...\n", $attempts_left);
             next unless $attempts_left > 0;
         } elsif($e_c == 23) {
@@ -153,12 +153,13 @@ while ($attempts_left > 0) {
                     $attempts_left--;
                 }
                 $prev_size = $actual;
-                
+
                 printf("Warning: Incomplete download ($actual/$expected bytes), %d attempts remaining\n", $attempts_left);
                 next unless $attempts_left > 0;
-            } elsif($actual > $expected) {
+            } elsif($expected and $actual > $expected) {
                 print "Warning: File larger than expected ($actual/$expected bytes)\n";
                 # Don't fail on this, but don't retry either  
+                last;
             } else {
                 print "Download complete.\n";
                 unlink $hdr_log if -f $hdr_log;
@@ -175,4 +176,3 @@ while ($attempts_left > 0) {
             unless $attempts_left == 1;
     }
 }
-
