@@ -140,8 +140,17 @@ while ($attempts_left > 0) {
             my $actual = -s $dest_path;
 
             if($actual < $expected) {
-                print "Warning: Incomplete download ($actual/$expected bytes), will retry\n";
-                next;  # Continue loop to retry
+                # Check if this is new progress vs previous attempt size  
+                if($actual > $prev_size) {
+                    print "Download progress detected ($prev_size -> $actual bytes), resetting retry counter\n";
+                    $attempts_left = $max_attempts;
+                } else {
+                    $attempts_left--;
+                }
+                $prev_size = $actual;
+                
+                printf("Warning: Incomplete download ($actual/$expected bytes), %d attempts remaining\n", $attempts_left);
+                next unless $attempts_left > 0;
             } elsif($actual > $expected) {
                 print "Warning: File larger than expected ($actual/$expected bytes)\n";
                 # Don't fail on this, but don't retry either  
