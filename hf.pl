@@ -43,7 +43,7 @@ my @curl_opts = (
 );
 my $dest_path = "$target_dir/$b_fn";
 
-# Header check to get CDN URL
+# Header check to get CDN URL, ETag and size  
 {
     my @head_cmd = (
         'curl',
@@ -60,9 +60,47 @@ my $dest_path = "$target_dir/$b_fn";
         die "curl headers check failed with exit=$e_c,signal=$e_s\n";
     }
     chomp($headers);
+
+    # Extract Location (CDN URL)  
     ($cdn_url) = ($headers =~ /^Location:\s*(https?:\/\/[^\r\n]+)/im);
     die "No CDN url when checking $url\n" unless length($cdn_url//"");
 }
+
+# Validate against CDN URL to ensure consistency  
+my $cdn_etag;
+my $cdn_size;
+{
+    my @cdn_head_cmd = (
+        'curl',
+        '-qsSLI',
+        "--http1.1",
+        "--connect-timeout", "10",
+        "--keepalive-time", "5", 
+        "-H", "'Transfer-Encoding: chunked'",
+        ($hftoken?(
+            '-H', "'Authorization: Bearer $hftoken'"
+        ):()),
+        $url,
+    );
+    my $cdn_headers = join(" ", @cdn_head_cmd);
+    my $response_headers = `$cdn_headers`;
+    if($! or $?){
+        warn "Warning: could not validate CDN response for ETag/size check\n";
+    } else {
+        chomp($response_headers);
+        while ($response_headers =~ /^(\S+):\s+(.+)$/gm) {
+            my $name = lc($1);
+            my $value = $2;
+            chop($value);
+            # always pick the last one, we use -L to curl to follow, and the last
+            # one is the cdn real download link
+            $cdn_etag = $value if $name eq "etag";
+            $cdn_size = $value if $name eq 'content-length';
+        }
+    }
+}
+$cdn_etag =~ s/"//g;
+print "Etag: $cdn_etag, size: $cdn_size\n";
 
 # Download loop with retry and partial transfer detection  
 my $hdr_log = "$dest_path.hdr.tmp";
@@ -70,7 +108,7 @@ my $max_attempts = 5;
 my $attempts_left = $max_attempts;
 my $prev_size = 0;
 
-while ($attempts_left > 0) {
+while ($attempts_left > 0 or -s $dest_path != $cdn_size){
     my @cmd = (
         'curl',
         '-qS',
@@ -83,8 +121,10 @@ while ($attempts_left > 0) {
         "--retry", "2",
         "--retry-delay", "2",
         "--dump-header", $hdr_log,
-        ($hftoken ? ('-H', "'Authorization: Bearer $hftoken'") : ()),
-        '-C', '-',  # resume partial downloads automatically  
+        ($hftoken?(
+            '-H', "'Authorization: Bearer $hftoken'"
+        ):()),
+        '-C', '-',
         '-o', $dest_path,
         $cdn_url,
     );
