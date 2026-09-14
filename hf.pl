@@ -174,7 +174,7 @@ while ($attempts_left > 0 or -s $dest_path != $cdn_size){
         open(my $hf, '<', $hdr_log);
         my %headers;
         while(<$hf>) {
-            $headers{cl} = int($1) if /^Content-Length:\s*(\d+)/i;
+            $headers{cl} = $) if /^Content-Length:\s*(\d+)/i;
             $headers{ct} = $1 if /^Content-Type:\s*([^\s]+)/i;
         }
         close($hf);
@@ -196,10 +196,6 @@ while ($attempts_left > 0 or -s $dest_path != $cdn_size){
 
                 printf("Warning: Incomplete download ($actual/$expected bytes), %d attempts remaining\n", $attempts_left);
                 next unless $attempts_left > 0;
-            } elsif($expected and $actual > $expected) {
-                print "Warning: File larger than expected ($actual/$expected bytes)\n";
-                # Don't fail on this, but don't retry either  
-                last;
             } else {
                 print "Download complete.\n";
                 unlink $hdr_log if -f $hdr_log;
