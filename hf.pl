@@ -22,7 +22,7 @@ my $b_fn = basename($url);
 $url .= "?download=true";
 
 # Ensure the target directory exists
-unless (-d $target_dir) {
+unless(-d $target_dir){
     make_path($target_dir)
         or die "Failed to create directory $target_dir: $!\n";
 }
@@ -34,12 +34,12 @@ my @curl_opts = (
     "--connect-timeout",  "10",
     "--keepalive-time",    "5",
     "--tr-encoding",
-    "-H", "'Transfer-Encoding: chunked'",
     "--retry", "2",
     "--retry-delay", "2",
     ($hftoken?(
         '-H', "'Authorization: Bearer $hftoken'"
     ):()),
+    "-H", "'Transfer-Encoding: chunked'",
 );
 my $dest_path = "$target_dir/$b_fn";
 
@@ -85,7 +85,7 @@ my $cdn_size;
     my $cdn_headers = join(" ", @cdn_head_cmd);
     my $response_headers = `$cdn_headers`;
     if($! or $?){
-        warn "Warning: could not validate CDN response for ETag/size check\n";
+        print "Warning: could not validate CDN response for ETag/size check\n";
     } else {
         chomp($response_headers);
         while ($response_headers =~ /^(\S+):\s+(.+)$/gm) {
@@ -108,7 +108,9 @@ my $max_attempts = 5;
 my $attempts_left = $max_attempts;
 my $prev_size = 0;
 
-while ($attempts_left > 0 or -s $dest_path != $cdn_size){
+print "Downloading $b_fn from $repo_id_or_url to '$dest_path'\n";
+while ($attempts_left > 0){
+    last if -s $dest_path == $cdn_size;
     my @cmd = (
         'curl',
         '-qS',
@@ -129,9 +131,8 @@ while ($attempts_left > 0 or -s $dest_path != $cdn_size){
         $cdn_url,
     );
 
-    print "Downloading $b_fn from $repo_id_or_url to '$dest_path'\n";
+    print "Downloading (attempt $attempts_left)\n";
     my $r = system(@cmd);
-
     if($r == -1){
         die "problem running curl: $!\n";
     } elsif($r != 0) {
@@ -142,7 +143,6 @@ while ($attempts_left > 0 or -s $dest_path != $cdn_size){
         if($e_s == 2) {
             # Ctrl-C pressed, exit cleanly
             print "\nDownload interrupted by user.\n";
-            unlink $hdr_log if -f $hdr_log;
             last;
         } elsif((-f $dest_path) && ($e_c != 23)) {
             # Non-fatal error or transient issue with partial download
@@ -157,58 +157,19 @@ while ($attempts_left > 0 or -s $dest_path != $cdn_size){
             }
             $prev_size = $file_size;
 
-            printf("Retrying download (%d attempts remaining)...\n", $attempts_left);
+            print "Retrying download ($attempts_left attempts remaining)...\n";
             next unless $attempts_left > 0;
         } elsif($e_c == 23) {
             # Server error (4xx/5xx), not worth retrying without changes
-            unlink $hdr_log if -f $hdr_log;
             die "curl failed with server error exit=$e_c,signal=$e_s\n";
         } else {
-            unlink $hdr_log if -f $hdr_log;
             die "curl failed with exit=$e_c,signal=$e_s\n";
         }
     }
+}
 
-    # Validate the download via headers log file
-    if(-f $hdr_log) {
-        open(my $hf, '<', $hdr_log);
-        my %headers;
-        while(<$hf>) {
-            $headers{cl} = $) if /^Content-Length:\s*(\d+)/i;
-            $headers{ct} = $1 if /^Content-Type:\s*([^\s]+)/i;
-        }
-        close($hf);
+print "Download finished $dest_path\n";
 
-        # Verify file is complete by comparing Content-Length to actual size  
-        if(exists $headers{cl}) {
-            my $expected = $headers{cl};
-            my $actual = -s $dest_path;
-
-            if($actual < $expected) {
-                # Check if this is new progress vs previous attempt size  
-                if($actual > $prev_size) {
-                    print "Download progress detected ($prev_size -> $actual bytes), resetting retry counter\n";
-                    $attempts_left = $max_attempts;
-                } else {
-                    $attempts_left--;
-                }
-                $prev_size = $actual;
-
-                printf("Warning: Incomplete download ($actual/$expected bytes), %d attempts remaining\n", $attempts_left);
-                next unless $attempts_left > 0;
-            } else {
-                print "Download complete.\n";
-                unlink $hdr_log if -f $hdr_log;
-                last;  # Success! Exit the loop  
-            }
-        } else {
-            # No Content-Length header (chunked transfer), assume success on exit code 0  
-            print "Download complete (no content-length header).\n";
-            unlink $hdr_log if -f $hdr_log;
-            last;
-        }
-    } else {
-        die "curl reported success but output file '$dest_path' does not exist\n" 
-            unless $attempts_left == 1;
-    }
+END {
+    unlink $hdr_log if $hdr_log and -f $hdr_log;
 }
