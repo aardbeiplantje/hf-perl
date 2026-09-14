@@ -11,7 +11,7 @@ die "Usage: $0 <repo_id|url> [filename] [target_dir]\n"
 
 my $repo_id_or_url = $ARGV[0];
 my $filename       = $ARGV[1];
-my $target_dir     = $ARGV[2] // Cwd::cwd();
+my $target_dir     = $ARGV[2] // $ENV{MODELS_DIR} // Cwd::cwd();
 
 # Construct the Hugging Face standard resolve URL
 my $url = $repo_id_or_url;
