@@ -18,11 +18,6 @@ The script follows a simple three-phase process:
 - Logs HTTP headers to temp file for post-download validation
 - Exponential backoff via `--retry 2 --retry-delay 2`
 
-### Phase 3: Validation
-- Reads Content-Length from header log
-- Compares expected vs actual file size
-- Retries on mismatch, exits on server errors (4xx/5xx)
-
 ## Key Design Decisions
 
 **Why two curl invocations?** The HEAD check avoids downloading large files just to get the CDN URL. The actual download uses different options (`--progress-bar`, `--dump-header`).
@@ -30,3 +25,15 @@ The script follows a simple three-phase process:
 **Retry strategy:** Non-server errors (network timeouts, etc.) trigger retries with resume. Server errors fail immediately.
 
 **Validation approach:** Headers are captured in a temp file and parsed after download completes, avoiding complex signal handling during transfer.
+
+## Edit
+
+After editing a file, clean up trailing whitespace:
+
+```bash
+sed -i 's/[[:space:]]*$//' lib/Minijinja.xs
+```
+
+### AGENTS.md
+
+Never auto update, only when requested.
