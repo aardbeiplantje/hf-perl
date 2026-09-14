@@ -110,7 +110,7 @@ my $prev_size = 0;
 
 print "Downloading $b_fn from $repo_id_or_url to '$dest_path'\n";
 while ($attempts_left > 0){
-    last if -s $dest_path == $cdn_size;
+    last if ((-s $dest_path)//0) == $cdn_size;
     my @cmd = (
         'curl',
         '-qS',
@@ -131,7 +131,7 @@ while ($attempts_left > 0){
         $cdn_url,
     );
 
-    print "Downloading (attempt $attempts_left)\n";
+    print "Downloading (attempt left $attempts_left)\n";
     my $r = system(@cmd);
     if($r == -1){
         die "problem running curl: $!\n";
